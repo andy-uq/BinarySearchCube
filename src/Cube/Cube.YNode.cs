@@ -1,20 +1,23 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace Cube
 {
 	public partial class Cube
 	{
-		public class YNode
+		private class YNode
 		{
 			private readonly int[]    _keys;
 			private readonly string[] _values;
 
 			public YNode()
 			{
-				_keys = new int[Cube.BSC_Z_MAX];
-				_values = new string[Cube.BSC_Z_MAX];
+				_keys = new int[MaxCountZ];
+				_values = new string[MaxCountZ];
 			}
+
+			public int Floor => _keys[0];
 
 			public int FindZ(int key, int countZ)
 			{
@@ -25,17 +28,17 @@ namespace Cube
 				{
 					mid /= 4;
 
+					if (key >= _keys[z - mid]) 
+						continue;
+
+					z -= mid;
+					if (key >= _keys[z - mid]) 
+						continue;
+
+					z -= mid;
 					if (key < _keys[z - mid])
 					{
 						z -= mid;
-						if (key < _keys[z - mid])
-						{
-							z -= mid;
-							if (key < _keys[z - mid])
-							{
-								z -= mid;
-							}
-						}
 					}
 				}
 
@@ -51,7 +54,7 @@ namespace Cube
 				Array.Copy(_values, offset, target._values, 0, length);
 			}
 
-			public void Merge(YNode source, int offset, in int length)
+			public void MergeY(YNode source, int offset, int length)
 			{
 				Array.Copy(source._keys, 0, _keys, offset, length);
 				Array.Copy(source._values, 0, _values, offset, length);
@@ -89,8 +92,8 @@ namespace Cube
 			public int Key(int z) => _keys[z];
 			public string Value(int z) => _values[z];
 
-			public Span<int> Keys(int countZ) => _keys.AsSpan(0, countZ);
-			public Span<string> Values(int countZ) => _values.AsSpan(0, countZ);
+			public IEnumerable<int> Keys(int countZ) => _keys.Take(countZ);
+			public IEnumerable<string> Values(int countZ) => _values.Take(countZ);
 
 			public IEnumerable<(int key, string value)> KeyValues(int countZ)
 			{

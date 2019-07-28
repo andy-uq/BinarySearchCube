@@ -1,35 +1,38 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 
 namespace Cube
 {
     public partial class Cube
     {
-	    private const int BSC_M = 8;
-	    private const int BSC_Z_MAX = 32;
-	    private const int BSC_Z_MIN = 8;
+	    private const int CapacityGrowthRate = 8;
+	    private const int MaxCountZ = 32;
+	    private const int MinCountZ = 8;
 
-	    private int[] _w_floor;
-	    private int[] _w_volume;
-	    private WNode[] _w_axis;
-		private int[] _x_size;
+	    private WNode[] _axisW;
+
+	    private int[] _floor;
+	    private int[] _volumeW;
+		private int[] _countX;
 		private int _volume;
-		private int _w_size;
-		private int _m_size;
+		private int _countW;
+		private int _capacity;
 
 		public Cube()
 		{
-			_w_floor = new int[0];
-			_w_volume = new int[0];
-			_w_axis = new WNode[0];
-			_x_size = new int[0];
+			_floor = new int[0];
+			_volumeW = new int[0];
+			_axisW = new WNode[0];
+			_countX = new int[0];
 
 			_volume = 0;
-			_w_size = 0;
-			_m_size = 0;
+			_countW = 0;
+			_capacity = 0;
 		}
 
-		public struct Offset
+		private struct Offset
 		{
 			public int W { get; }
 			public int X { get; }
@@ -53,18 +56,25 @@ namespace Cube
 			}
 		}
 
+		public IEnumerable<int> Keys() => Enumerable.Range(0, _countW).SelectMany(Keys);
+		private IEnumerable<int> Keys(int w) => Enumerable.Range(0, _countX[w]).SelectMany(x => _axisW[w].Keys(x));
+
+		public IEnumerable<string> Values() => Enumerable.Range(0, _countW).SelectMany(Values);
+		private IEnumerable<string> Values(int w) => Enumerable.Range(0, _countX[w]).SelectMany(x => _axisW[w].Values(x));
+
+		public IEnumerable<(int key, string value)> KeyValues() => Enumerable.Range(0, _countW).SelectMany(KeyValues);
+		private IEnumerable<(int key, string value)> KeyValues(int w) => Enumerable.Range(0, _countX[w]).SelectMany(x => _axisW[w].KeyValues(x));
+
 		private (int, string) Value(Offset offset)
 		{
 			var (w, x, y, z) = offset;
-			return _w_axis[w].x_axis[x].Get(y, z);
+			return _axisW[w].Get(x, y, z);
 		}
 
 		private string Value(Offset offset, string value)
 		{
 			var (w, x, y, z) = offset;
-
-			var xNode = _w_axis[w].x_axis[x];
-			return xNode.Set(y, z, value);
+			return _axisW[w].Set(x, y, z, value);
 		}
 
 		public string SetIndex(int index, string val)
@@ -102,178 +112,31 @@ namespace Cube
 			return value;
 		}
 
-		private string RemoveZ(Offset offset)
-		{
-			var (w, x, y, z) = offset;
-
-			var nodeW = _w_axis[w];
-			var nodeX = nodeW.x_axis[x];
-			
-			_volume--;
-			_w_volume[w]--;
-			nodeW.x_volume[x]--;
-
-			var val = nodeX.RemoveZ(y, z);
-			var countZ = nodeX.CountZ(y);
-
-			if (countZ > 0)
-			{
-				if (z == 0)
-				{
-					nodeX.ResetFloor(y);
-
-					if (y == 0)
-					{
-						nodeW.x_floor[x] = nodeX.Key(y, z);
-
-						if (x == 0)
-						{
-							_w_floor[w] = nodeX.Key(y, z);
-						}
-					}
-				}
-
-				if (y != 0 && countZ < BSC_Z_MIN && nodeX.CountZ(y-1) < BSC_Z_MIN)
-				{
-					MergeY(w, x, y - 1, y);
-
-					if (x != 0 && nodeW.y_size[x] < _m_size / 4 && nodeW.y_size[x - 1] < _m_size / 4)
-					{
-						MergeX(w, x - 1, x);
-
-						if (w != 0 && _x_size[w] < _m_size / 4 && _x_size[w - 1] < _m_size / 4)
-						{
-							MergeW(w - 1, w);
-						}
-					}
-				}
-			}
-			else
-			{
-				RemoveY(_w_axis[w], w, x, y);
-			}
-
-			return val;
-		}
-		
-		private void MergeW(int w1, int w2)
-		{
-			var a = _w_axis[w1];
-			var b = _w_axis[w2];
-
-			a.Merge(b, _x_size[w1], _x_size[w2], _m_size);
-
-			_x_size[w1] += _x_size[w2];
-			_w_volume[w1] += _w_volume[w2];
-
-			RemoveW(w2);
-		}
-
-		private void MergeX(int w, int x1, int x2)
-		{
-			var nodeW = _w_axis[w];
-			nodeW.MergeX(x1, x2, _m_size);
-			RemoveX(nodeW, w, x2);
-		}
-
-		private void MergeY(int w, int x, int y1, int y2)
-		{
-			_w_axis[w].x_axis[x].MergeY(y1, y2);
-			RemoveY(_w_axis[w], w, x, y2);
-		}
-
-		private void RemoveY(WNode nodeW, int w, int x, int y)
-		{
-			var nodeX = nodeW.x_axis[x];
-
-			nodeW.y_size[x]--;
-
-			if (nodeW.y_size[x] == 0)
-			{
-				RemoveX(nodeW, w, x);
-				return;
-			}
-
-			if (nodeW.y_size[x] != y)
-			{
-				nodeX.RemoveNode(y, nodeW.y_size[x]);
-			}
-
-			if (y > 0) 
-				return;
-
-			nodeW.x_floor[x] = nodeX.Floor;
-			if (x == 0)
-			{
-				_w_floor[w] = nodeX.Floor;
-			}
-		}
-
-		private void RemoveX(WNode nodeW, int w, int x)
-		{
-			_x_size[w]--;
-
-			if (_x_size[w] == 0)
-			{
-				RemoveW(w);
-				return;
-			}
-
-			if (_x_size[w] != x)
-			{
-				nodeW.RemoveX(x, _x_size[w]);
-			}
-
-			if (x == 0)
-			{
-				_w_floor[w] = nodeW.x_floor[0];
-			}
-		}
-
-		private void RemoveW(int w)
-		{
-			_w_size--;
-
-			if (_w_size < _m_size - BSC_M)
-			{
-				_m_size -= BSC_M;
-			}
-
-			if (_w_size == 0 || _w_size == w) 
-				return;
-
-			var length = _w_size - w;
-			Array.Copy(_w_floor, w + 1, _w_floor, w, length);
-			Array.Copy(_w_axis, w + 1, _w_axis, w, length);
-			Array.Copy(_w_volume, w + 1, _w_volume, w, length);
-			Array.Copy(_x_size, w + 1, _x_size, w, length);
-		}
-
 		public void SetKey(int key, string value)
 		{
-			if (_w_size == 0)
+			if (_countW == 0)
 			{
 				InitStructs();
 
-				_w_floor[0] = key;
-				_w_axis[0].SetFloor(key);
+				_floor[0] = key;
+				_axisW[0].SetFloor(key);
 
 				Insert(0, 0, 0, 0, (key, value));
 			}
-			else if (key < _w_floor[0])
+			else if (key < _floor[0])
 			{
-				_w_floor[0] = key;
-				_w_axis[0].SetFloor(key);
+				_floor[0] = key;
+				_axisW[0].SetFloor(key);
 
 				Insert(0, 0, 0, 0, (key, value));
 			}
 			else
 			{
-				var (w, x, y, z) = FindKeyOffset(key, _w_size);
+				var (w, x, y, z) = FindKeyOffset(key, _countW);
 
-				if (key == _w_axis[w].x_axis[x].Key(y, z))
+				if (key == _axisW[w].Key(x, y, z))
 				{
-					_w_axis[w].x_axis[x].Set(y, z, value);
+					_axisW[w].Set(x, y, z, value);
 					return;
 				}
 
@@ -282,46 +145,27 @@ namespace Cube
 			}
 		}
 
-		private void Insert(int w, int x, int y, int z, (int key, string value) value)
-		{
-			var nodeW = _w_axis[w];
-			var nodeX = nodeW.x_axis[x];
-
-			_volume++;
-			_w_volume[w]++;
-			nodeW.x_volume[x]++;
-
-			var countZ = nodeX.AddZ(y, z, value);
-			if (countZ == BSC_Z_MAX)
-			{
-				SplitY(w, x, y);
-			}
-		}
-
 		public void Validate()
 		{
-			if (_w_size == 0)
+			if (_countW == 0)
 			{
 				return ;
 			}
 
-			var last = _w_floor[0];
+			var last = _floor[0];
 
-			for (var w = 0 ; w < _w_size ; w++)
+			for (var w = 0 ; w < _countW ; w++)
 			{
-				for (var x = 0 ; x < _x_size[w] ; x++)
+				for (var x = 0 ; x < _countX[w] ; x++)
 				{
-					for (var y = 0 ; y < _w_axis[w].y_size[x] ; y++)
+					foreach (var key in _axisW[w].Keys(x))
 					{
-						foreach (var key in _w_axis[w].x_axis[x].Keys(y))
+						if (last > key)
 						{
-							if (last > key)
-							{
-								throw new InvalidOperationException($"Unexpected key: {key} >= {last}");
-							}
-
-							last = key;
+							throw new InvalidOperationException($"Unexpected key: {key} >= {last}");
 						}
+
+						last = key;
 					}
 				}
 			}
@@ -329,36 +173,34 @@ namespace Cube
 
 		public void Dump(StringWriter sw, int depth)
 		{
-			for (var w = 0 ; w < _w_size ; w++)
+			for (var w = 0 ; w < _countW ; w++)
 			{
-				var nodeW = _w_axis[w];
+				var nodeW = _axisW[w];
 
 				if (depth == 1)
 				{
-					sw.WriteLine($"w index [{w:d3}] x size [{_x_size[w]:d3}] volume [{_w_volume[w]:d8}]\n");
+					sw.WriteLine($"w index [{w:d3}] x size [{_countX[w]:d3}] volume [{_volumeW[w]:d8}]\n");
 					continue;
 				}
 
-				for (var x = 0 ; x < _x_size[w] ; x++)
+				for (var x = 0 ; x < _countX[w] ; x++)
 				{
-					var nodeX = nodeW.x_axis[x];
-
 					if (depth == 2)
 					{
-						sw.WriteLine($"w [{w:d3}] x [{x:d3}] s [{nodeW.y_size[x]:d3}] v [{nodeW.x_volume[x]:d8}");
+						sw.WriteLine($"w [{w:d3}] x [{x:d3}] s [{nodeW.CountY(x):d3}] v [{nodeW.VolumeX(x):d8}");
 						continue;
 					}
 
-					for (var y = 0 ; y < nodeW.y_size[x] ; y++)
+					for (var y = 0 ; y < nodeW.CountY(x); y++)
 					{
 						if (depth == 3)
 						{
-							sw.WriteLine("w [{0:d3}] x [{1:d3}] y [{2:d3}] s [{3:d3}]\n", w, x, y, nodeX.Keys(y).Length);
+							sw.WriteLine("w [{0:d3}] x [{1:d3}] y [{2:d3}] s [{3:d3}]\n", w, x, y, nodeW.Keys(x, y).Count());
 							continue;
 						}
 
 						int z = 0;
-						foreach (var (key, val) in nodeX.KeyValues(y))
+						foreach (var (key, val) in nodeW.KeyValues(x, y))
 						{
 							sw.WriteLine("w [{0:d3}] x [{1:d3}] y [{2:d3}] z [{3:d3}] [{4:d8}] ({5})\n", w, x, y, z++, key, val);
 						}
@@ -367,39 +209,202 @@ namespace Cube
 			}
 		}
 
+		private string RemoveZ(Offset offset)
+		{
+			var (w, x, y, z) = offset;
+
+			var nodeW = _axisW[w];
+			
+			_volume--;
+			_volumeW[w]--;
+
+			var val = nodeW.RemoveZ(x, y, z);
+			var countZ = nodeW.CountZ(x, y);
+
+			if (countZ > 0)
+			{
+				if (z == 0)
+				{
+					nodeW.ResetFloor(x, y);
+
+					if (y == 0)
+					{
+						nodeW.ResetFloor(x);
+
+						if (x == 0)
+						{
+							_floor[w] = nodeW.Floor;
+						}
+					}
+				}
+
+				if (y == 0 || countZ >= MinCountZ || nodeW.CountZ(x, y - 1) >= MinCountZ)
+				{
+					return val;
+				}
+
+				MergeY(w, x, y - 1, y);
+
+				if (x == 0 || nodeW.CountY(x) >= _capacity / 4 || nodeW.CountY(x - 1) >= _capacity / 4)
+				{
+					return val;
+				}
+
+				MergeX(w, x - 1, x);
+
+				if (w == 0 || _countX[w] >= _capacity / 4 || _countX[w - 1] >= _capacity / 4)
+				{
+					return val;
+				}
+
+				MergeW(w - 1, w);
+			}
+			else
+			{
+				RemoveY(_axisW[w], w, x, y);
+			}
+
+			return val;
+		}
+		
+		private void MergeW(int w1, int w2)
+		{
+			var a = _axisW[w1];
+			var b = _axisW[w2];
+
+			a.MergeW(b, _countX[w1], _countX[w2], _capacity);
+
+			_countX[w1] += _countX[w2];
+			_volumeW[w1] += _volumeW[w2];
+
+			RemoveW(w2);
+		}
+
+		private void MergeX(int w, int x1, int x2)
+		{
+			var nodeW = _axisW[w];
+			nodeW.MergeX(x1, x2, _capacity);
+			RemoveX(nodeW, w, x2);
+		}
+
+		private void MergeY(int w, int x, int y1, int y2)
+		{
+			_axisW[w].MergeY(x, y1, y2);
+			RemoveY(_axisW[w], w, x, y2);
+		}
+
+		private void RemoveY(WNode nodeW, int w, int x, int y)
+		{
+			var countY = nodeW.RemoveY(x);
+
+			if (countY == 0)
+			{
+				RemoveX(nodeW, w, x);
+				return;
+			}
+
+			if (countY != y)
+			{
+				nodeW.RemoveNode(x, y, countY);
+			}
+
+			if (y > 0) 
+				return;
+
+			var floor = nodeW.ResetFloor(x);
+			if (x == 0)
+			{
+				_floor[w] = floor;
+			}
+		}
+
+		private void RemoveX(WNode nodeW, int w, int x)
+		{
+			_countX[w]--;
+
+			if (_countX[w] == 0)
+			{
+				RemoveW(w);
+				return;
+			}
+
+			if (_countX[w] != x)
+			{
+				nodeW.RemoveX(x, _countX[w]);
+			}
+
+			if (x == 0)
+			{
+				_floor[w] = nodeW.Floor;
+			}
+		}
+
+		private void RemoveW(int w)
+		{
+			_countW--;
+
+			if (_countW < _capacity - CapacityGrowthRate)
+			{
+				_capacity -= CapacityGrowthRate;
+			}
+
+			if (_countW == 0 || _countW == w) 
+				return;
+
+			var length = _countW - w;
+			Array.Copy(_floor, w + 1, _floor, w, length);
+			Array.Copy(_axisW, w + 1, _axisW, w, length);
+			Array.Copy(_volumeW, w + 1, _volumeW, w, length);
+			Array.Copy(_countX, w + 1, _countX, w, length);
+		}
+
+		private void Insert(int w, int x, int y, int z, (int key, string value) value)
+		{
+			var nodeW = _axisW[w];
+
+			_volume++;
+			_volumeW[w]++;
+
+			var countZ = nodeW.AddZ(x, y, z, value);
+			if (countZ == MaxCountZ)
+			{
+				SplitY(w, x, y);
+			}
+		}
+
 		private void Move(int sourceIndex, int destinationIndex, int length)
 		{
-			Array.Copy(_w_floor, sourceIndex, _w_floor, destinationIndex, length);
-			Array.Copy(_w_axis, sourceIndex, _w_axis, destinationIndex, length);
-			Array.Copy(_w_volume, sourceIndex, _w_volume, destinationIndex, length);
-			Array.Copy(_x_size, sourceIndex, _x_size, destinationIndex, length);
+			Array.Copy(_floor, sourceIndex, _floor, destinationIndex, length);
+			Array.Copy(_axisW, sourceIndex, _axisW, destinationIndex, length);
+			Array.Copy(_volumeW, sourceIndex, _volumeW, destinationIndex, length);
+			Array.Copy(_countX, sourceIndex, _countX, destinationIndex, length);
 		}
 
 		private void Resize(int length)
 		{
-			Array.Resize(ref _w_floor, length);
-			Array.Resize(ref _w_axis, length);
-			Array.Resize(ref _w_volume, length);
-			Array.Resize(ref _x_size, length);
+			Array.Resize(ref _floor, length);
+			Array.Resize(ref _axisW, length);
+			Array.Resize(ref _volumeW, length);
+			Array.Resize(ref _countX, length);
 		}
 		
-		private WNode InsertNode(int w)
+		private WNode InsertW(int w)
 		{
-			_w_size++;
+			_countW++;
 
-			if (_w_size == _m_size)
+			if (_countW == _capacity)
 			{
-				_m_size += BSC_M;
-				Resize(_m_size);
+				_capacity += CapacityGrowthRate;
+				Resize(_capacity);
 			}
 
-			if (w + 1 != _w_size)
+			if (w + 1 != _countW)
 			{
-				Move(w, w + 1, _w_size - w - 1);
+				Move(w, w + 1, _countW - w - 1);
 			}
 
-			_w_axis[w] = new WNode(_m_size);
-			return _w_axis[w];
+			_axisW[w] = new WNode(_capacity);
+			return _axisW[w];
 		}
 
 		private void SplitW(int w)
@@ -407,40 +412,40 @@ namespace Cube
 			int x;
 			int volume;
 
-			var a = _w_axis[w];
-			var b = InsertNode(w + 1);
+			var a = _axisW[w];
+			var b = InsertW(w + 1);
 
-			_x_size[w + 1] = _x_size[w] / 2;
-			_x_size[w] -= _x_size[w + 1];
+			_countX[w + 1] = _countX[w] / 2;
+			_countX[w] -= _countX[w + 1];
 
-			a.Split(b, _x_size[w], _x_size[w + 1]);
+			a.SplitW(b, _countX[w], _countX[w + 1]);
 
-			for (x = volume = 0 ; x < _x_size[w] ; x++)
+			for (x = volume = 0 ; x < _countX[w] ; x++)
 			{
-				volume += a.x_volume[x];
+				volume += a.VolumeX(x);
 			}
 
-			_w_volume[w + 1] = _w_volume[w] - volume;
-			_w_volume[w] = volume;
+			_volumeW[w + 1] = _volumeW[w] - volume;
+			_volumeW[w] = volume;
 
-			_w_floor[w + 1] = b.x_floor[0];
+			_floor[w + 1] = b.Floor;
 		}
 
 		private void SplitX(int w, int x)
 		{
-			var countX = ++_x_size[w];
-			_w_axis[w].SplitX(x, countX, _m_size);
+			var countX = ++_countX[w];
+			_axisW[w].SplitX(x, countX, _capacity);
 		}
 
 		private void SplitY(int w, int x, int y)
 		{
-			_w_axis[w].SplitY(x, y, _m_size);
-			if (_w_axis[w].y_size[x] != _m_size) 
+			_axisW[w].SplitY(x, y, _capacity);
+			if (_axisW[w].CountY(x) != _capacity) 
 				return;
 
 			SplitX(w, x);
 
-			if (_x_size[w] == _m_size)
+			if (_countX[w] == _capacity)
 			{
 				SplitW(w);
 			}
@@ -448,19 +453,17 @@ namespace Cube
 
 		private void InitStructs()
 		{
-			_m_size = BSC_M;
-			_w_floor = new int[BSC_M];
-			_w_axis = new WNode[BSC_M];
-			_w_volume = new int[BSC_M];
-			_x_size = new int[BSC_M];
+			_capacity = CapacityGrowthRate;
+			_floor = new int[CapacityGrowthRate];
+			_axisW = new WNode[CapacityGrowthRate];
+			_volumeW = new int[CapacityGrowthRate];
+			_countX = new int[CapacityGrowthRate];
 
-			var wNode = _w_axis[0] = new WNode(BSC_M);
-			var xNode = wNode.x_axis[0] = new XNode(BSC_M);
+			var wNode = _axisW[0] = new WNode(CapacityGrowthRate);
+			wNode.ResetW();
 
-			xNode.Reset(0);
-
-			_w_size = _x_size[0] = wNode.y_size[0] = 1;
-			_volume = _w_volume[0] = wNode.x_volume[0] = 0;
+			_countW = _countX[0] = 1;
+			_volume = _volumeW[0] = 0;
 		}
 
 		private bool FindIndex(int index, out Offset offset)
@@ -475,15 +478,15 @@ namespace Cube
 			{
 				var total = 0;
 
-				for (var w = 0; w < _w_size; w++)
+				for (var w = 0; w < _countW; w++)
 				{
-					if (_w_axis[w].FindIndexForward(index, w, _w_volume[w], _x_size[w], ref total, out var found))
+					if (_axisW[w].FindIndexForwardInW(index, w, _volumeW[w], _countX[w], ref total, out var found))
 					{
 						offset = found ?? default;
 						return found != null;
 					}
 
-					total += _w_volume[w];
+					total += _volumeW[w];
 				}
 
 				offset = default;
@@ -493,15 +496,15 @@ namespace Cube
 			{
 				var total = _volume;
 
-				for (var w = _w_size - 1; w >= 0; w--)
+				for (var w = _countW - 1; w >= 0; w--)
 				{
-					if (_w_axis[w].FindIndexBackward(index, w, _w_volume[w], _x_size[w], ref total, out var found))
+					if (_axisW[w].FindIndexBackwardInW(index, w, _volumeW[w], _countX[w], ref total, out var found))
 					{
 						offset = found ?? default;
 						return found != null;
 					}
 
-					total -= _w_volume[w];
+					total -= _volumeW[w];
 				}
 
 				offset = default;
@@ -511,15 +514,13 @@ namespace Cube
 
 		private (Offset? offset, string value) FindKey(int target)
 	    {
-		    if (_w_size == 0 || target < _w_floor[0])
+		    if (_countW == 0 || target < _floor[0])
 		    {
 			    return default;
 		    }
 
-		    var (w, x, y, z) = FindKeyOffset(target, _w_size);
-
-		    var nodeX = _w_axis[w].x_axis[x];
-		    var (key, val) = nodeX.Get(y, z);
+		    var (w, x, y, z) = FindKeyOffset(target, _countW);
+		    var (key, val) = _axisW[w].Get(x, y, z);
 			
 		    return key == target 
 			    ? (new Offset(w, x, y, z), val) 
@@ -535,16 +536,16 @@ namespace Cube
 			{
 				mid /= 2;
 
-				if (key < _w_floor[w - mid])
+				if (key < _floor[w - mid])
 				{
 					w -= mid;
 				}
 			}
 
-			while (key < _w_floor[w]) 
+			while (key < _floor[w]) 
 				w--;
 
-			var (x, y, z) = _w_axis[w].FindKeyOffset(key, _x_size[w]);
+			var (x, y, z) = _axisW[w].FindKeyOffset(key, _countX[w]);
 			return new Offset(w, x, y, z);
 		}
     }

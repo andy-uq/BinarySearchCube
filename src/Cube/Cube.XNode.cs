@@ -1,25 +1,38 @@
 ﻿using System;
 using System.Collections;
 using System.Collections.Generic;
+using System.Linq;
 
 namespace Cube
 {
 	public partial class Cube
 	{
-		public class XNode
+		private class XNode
 		{
 			private int[] _countZ;
-			private int[] _floor;
+			private int[] _floorY;
 			private YNode[] _axisY;
 
-			public XNode(in int size)
+			public XNode(int size)
 			{
-				_floor = new int[size];
+				_floorY = new int[size];
 				_axisY = new YNode[size];
 				_countZ = new int[size];
 			}
 
-			public int Floor => _floor[0];
+			public int Floor => _floorY[0];
+
+			public int Volume(int countY)
+			{
+				var volume = 0;
+
+				for (var y = 0; y < countY; y++)
+				{
+					volume += CountZ(y);
+				}
+
+				return volume;
+			}
 
 			public (int y, int z) FindKeyOffset(int key, int countY)
 			{
@@ -30,32 +43,31 @@ namespace Cube
 				{
 					mid /= 4;
 
-					if (key < _floor[y - mid])
+					if (key >= _floorY[y - mid]) 
+						continue;
+
+					y -= mid;
+					if (key >= _floorY[y - mid]) 
+						continue;
+
+					y -= mid;
+					if (key < _floorY[y - mid])
 					{
 						y -= mid;
-						if (key < _floor[y - mid])
-						{
-							y -= mid;
-							if (key < _floor[y - mid])
-							{
-								y -= mid;
-							}
-						}
 					}
 				}
 
-				while (key < _floor[y]) 
+				while (key < _floorY[y]) 
 					y--;
 
 				var z = _axisY[y].FindZ(key, _countZ[y]);
-			
 				return (y, z);
 			}
 
 
-			public bool FindIndexForward(int index, int yCount, ref int total, out (int y, int z) offset)
+			public bool FindIndexForwardInY(int index, int yCount, ref int total, out (int y, int z) offset)
 			{
-				for (int y = 0; y < yCount; y++)
+				for (var y = 0; y < yCount; y++)
 				{
 					if (total + _countZ[y] > index)
 					{
@@ -72,7 +84,7 @@ namespace Cube
 
 			}
 
-			public bool FindIndexBackward(int index, int yCount, ref int total, out (int y, int z) offset)
+			public bool FindIndexBackwardInY(int index, int yCount, ref int total, out (int y, int z) offset)
 			{
 				for (var y = yCount - 1; y >= 0; y--)
 				{
@@ -90,18 +102,18 @@ namespace Cube
 				return false;
 			}
 
-			public void InsertNode(int y, int mSize, int countY)
+			public void InsertY(int y, int mSize, int countY)
 			{
-				if (countY % BSC_M == 0 && countY < mSize)
+				if (countY % CapacityGrowthRate == 0 && countY < mSize)
 				{
-					Resize(mSize);
+					ResizeX(mSize);
 				}
 
 				var destinationIndex = y + 1;
 				if (countY != destinationIndex)
 				{
 					var length = countY - y - 1;
-					Array.Copy(_floor, y, _floor, destinationIndex, length);
+					Array.Copy(_floorY, y, _floorY, destinationIndex, length);
 					Array.Copy(_axisY, y, _axisY, destinationIndex, length);
 					Array.Copy(_countZ, y, _countZ, destinationIndex, length);
 				}
@@ -109,9 +121,9 @@ namespace Cube
 				_axisY[y] = new YNode();
 			}
 
-			private void Resize(int length)
+			private void ResizeX(int length)
 			{
-				Array.Resize(ref _floor, length);
+				Array.Resize(ref _floorY, length);
 				Array.Resize(ref _axisY, length);
 				Array.Resize(ref _countZ, length);
 			}
@@ -126,12 +138,12 @@ namespace Cube
 
 				a.Split(b, _countZ[y], _countZ[y + 1]);
 
-				_floor[y + 1] = b.Key(0);
+				_floorY[y + 1] = b.Key(0);
 			}
 
-			public void Split(XNode target, int offset, in int length)
+			public void SplitX(XNode target, int offset, int length)
 			{
-				Array.Copy(_floor, offset, target._floor, 0, length);
+				Array.Copy(_floorY, offset, target._floorY, 0, length);
 				Array.Copy(_axisY, offset, target._axisY, 0, length);
 				Array.Copy(_countZ, offset, target._countZ, 0, length);
 			}
@@ -141,32 +153,32 @@ namespace Cube
 				var a = _axisY[y1];
 				var b = _axisY[y2];
 
-				a.Merge(b, _countZ[y1], _countZ[y2]);
+				a.MergeY(b, _countZ[y1], _countZ[y2]);
 
 				_countZ[y1] += _countZ[y2];
 			}
 
-			public void Merge(XNode source, in int offset, in int length, in int mSize)
+			public void MergeX(XNode source, int offset, int length, int mSize)
 			{
-				Resize(mSize);
+				ResizeX(mSize);
 
-				Array.Copy(source._floor, 0, _floor, offset, length);
+				Array.Copy(source._floorY, 0, _floorY, offset, length);
 				Array.Copy(source._axisY, 0, _axisY, offset, length);
 				Array.Copy(source._countZ, 0, _countZ, offset, length);
 			}
 
-			public void RemoveNode(in int y, int countY)
+			public void RemoveY(int y, int countY)
 			{
 				var length = countY - y;
 
-				Array.Copy(_floor, y + 1, _floor, y, length);
+				Array.Copy(_floorY, y + 1, _floorY, y, length);
 				Array.Copy(_axisY, y + 1, _axisY, y, length);
 				Array.Copy(_countZ, y + 1, _countZ, y, length);
 			}
 
 			public string RemoveZ(int y, int z)
 			{
-				var value = Value(y, z);
+				var value = _axisY[y].Value(z);
 
 				_countZ[y]--;
 				var countZ = _countZ[y];
@@ -181,26 +193,24 @@ namespace Cube
 
 			public int CountZ(int y) => _countZ[y];
 
-			public Span<int> Keys(int y) => _axisY[y].Keys(_countZ[y]);
-			public Span<string> Values(int y) => _axisY[y].Values(_countZ[y]);
+			public IEnumerable<int> Keys(int y) => _axisY[y].Keys(_countZ[y]);
+			public IEnumerable<string> Values(int y) => _axisY[y].Values(_countZ[y]);
 
 			public IEnumerable<(int key, string value)> KeyValues(int y) => _axisY[y].KeyValues(_countZ[y]);
 
-			public void Reset(int y)
+			public void ResetY()
 			{
-				_axisY[y] = new YNode();
-				_countZ[y] = 0;
+				_axisY[0] = new YNode();
+				_countZ[0] = 0;
 			}
 
-			public void SetFloor(int key) => _floor[0] = key;
-			public void ResetFloor(int y) => _floor[y] = _axisY[y].Key(0);
+			public void SetFloor(int key) => _floorY[0] = key;
+			public void ResetFloor(int y) => _floorY[y] = _axisY[y].Floor;
 
 			public int Key(int y, int z) => _axisY[y].Key(z);
-			public string Value(int y, int z) => _axisY[y].Value(z);
 
 			public (int, string) Get(int y, int z) => _axisY[y].Get(z);
 			public string Set(int y, int z, string value) => _axisY[y].Set(z, value);
-			public void Set(int y, int z, (int, string) value) => _axisY[y].Set(z, value);
 
 			public int AddZ(int y, int z, (int key, string value) value)
 			{
@@ -215,11 +225,6 @@ namespace Cube
 				_axisY[y].Set(z, value);
 
 				return countZ;
-			}
-
-			public void RemoveY(int y, int z, int countZ)
-			{
-				_axisY[y].Remove(z, countZ);
 			}
 		}
 	}
